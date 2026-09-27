@@ -1,4 +1,5 @@
 #include "capture_engine.hpp"
+#include "packet_parser.hpp"
 
 #include <charconv>
 #include <chrono>
@@ -11,6 +12,7 @@
 #include <stdexcept>
 #include <string_view>
 #include <system_error>
+#include <utility>
 
 namespace {
 
@@ -121,19 +123,30 @@ int capture_frames(const std::string_view interface_name,
 
     std::uint64_t captured_frames{};
     while (captured_frames < frame_count && stop_requested == 0) {
-        const auto frame = capture.receive_next(
+        auto frame = capture.receive_next(
             captured_frames + 1U, std::chrono::milliseconds{500});
         if (!frame.has_value()) {
             continue;
         }
 
         ++captured_frames;
-        std::cout << "Frame " << frame->number << ": timestamp=";
-        print_timestamp(frame->timestamp);
-        std::cout << " captured=" << frame->captured_length
-                  << " original=" << frame->original_length;
-        if (frame->truncated()) {
+        const auto packet = deep_wire::PacketParser::parse(std::move(*frame));
+        std::cout << "Frame " << packet.frame.number << ": timestamp=";
+        print_timestamp(packet.frame.timestamp);
+        std::cout << " captured=" << packet.frame.captured_length
+                  << " original=" << packet.frame.original_length;
+        if (packet.frame.truncated()) {
             std::cout << " [truncated]";
+        }
+        std::cout << " protocol=" << packet.protocol;
+        if (!packet.source.empty()) {
+            std::cout << " " << packet.source << " -> " << packet.destination;
+        }
+        if (!packet.info.empty()) {
+            std::cout << " " << packet.info;
+        }
+        if (!packet.error.empty()) {
+            std::cout << " [" << packet.error << ']';
         }
         std::cout << '\n';
     }
