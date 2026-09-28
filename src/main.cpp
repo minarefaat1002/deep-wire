@@ -1,5 +1,5 @@
 #include "capture_engine.hpp"
-#include "packet_parser.hpp"
+#include "packet_decoder.hpp"
 
 #include <charconv>
 #include <chrono>
@@ -130,7 +130,7 @@ int capture_frames(const std::string_view interface_name,
         }
 
         ++captured_frames;
-        const auto packet = deep_wire::PacketParser::parse(std::move(*frame));
+        const auto packet = deep_wire::PacketDecoder::decode(std::move(*frame));
         std::cout << "Frame " << packet.frame.number << ": timestamp=";
         print_timestamp(packet.frame.timestamp);
         std::cout << " captured=" << packet.frame.captured_length

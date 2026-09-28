@@ -9,7 +9,12 @@ endif()
 add_executable(deep-wire
     src/main.cpp
     src/capture_engine.cpp
-    src/packet_parser.cpp
+    src/packet_decoder.cpp
+    src/packet_decode_internal.cpp
+    src/ethernet_decoder.cpp
+    src/arp_decoder.cpp
+    src/ip_decoder.cpp
+    src/transport_decoder.cpp
 )
 
 target_compile_features(deep-wire PRIVATE cxx_std_20)
