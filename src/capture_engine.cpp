@@ -14,8 +14,10 @@
 #include <linux/if_ether.h>
 #include <linux/if_packet.h>
 #include <net/if.h>
+#include <net/if_arp.h>
 #include <poll.h>
 #include <sys/socket.h>
+#include <sys/ioctl.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -141,6 +143,24 @@ void CaptureEngine::open()
     const auto close_on_error = [&descriptor]() {
         ::close(descriptor);
     };
+
+    // The decoder expects Ethernet-style headers. Linux loopback also
+    // presents a synthetic Ethernet header to AF_PACKET/SOCK_RAW. Reject
+    // PPP, TUN, and other layouts rather than interpreting their bytes as MACs.
+    ifreq hardware{};
+    std::strncpy(hardware.ifr_name, interface_name_.c_str(), IFNAMSIZ - 1U);
+    if (::ioctl(descriptor, SIOCGIFHWADDR, &hardware) == -1) {
+        const int saved_errno = errno;
+        close_on_error();
+        errno = saved_errno;
+        throw_system_error("ioctl(SIOCGIFHWADDR)");
+    }
+    if (hardware.ifr_hwaddr.sa_family != ARPHRD_ETHER
+        && hardware.ifr_hwaddr.sa_family != ARPHRD_LOOPBACK) {
+        close_on_error();
+        throw std::runtime_error(
+            "unsupported interface link type; choose Ethernet, managed Wi-Fi, or loopback");
+    }
 
     // A nonzero value enables receive timestamps. Later recvmsg() calls
     // receive a timespec in SCM_TIMESTAMPNS control data beside each frame.

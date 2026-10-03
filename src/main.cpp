@@ -25,12 +25,11 @@ namespace {
 // thread synchronization mechanism.
 volatile std::sig_atomic_t stop_requested = 0;
 
-// std::signal calls this when SIGINT (Ctrl+C) or SIGTERM arrives. extern "C"
-// gives it C language linkage for the C-style signal-handler interface.
+// std::signal calls this when SIGINT (Ctrl+C) or SIGTERM arrives.
 // The int parameter is the signal number; it has no name because we do not
 // need to distinguish the two signals. Only set the flag here: the main loop
 // notices it on its next check and performs the normal shutdown.
-extern "C" void request_stop(int)
+void request_stop(int)
 {
     stop_requested = 1;
 }
