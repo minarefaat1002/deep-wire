@@ -48,6 +48,8 @@ void CaptureSession::start(std::string interface_name,
         // must describe only this new capture.
         pending_.clear();
         error_.clear();
+        statistics_.reset();
+        statistics_failed_ = false;
         finished_ = false;
     }
     try {
@@ -86,6 +88,8 @@ CaptureSession::Update CaptureSession::take_update()
         // Error and completion remain available on later polls until start()
         // resets them for another run.
         update.error = error_;
+        update.statistics = statistics_;
+        update.statistics_unavailable = statistics_failed_;
         update.finished = finished_;
     }
     // The worker may have paused at the 256-packet limit. Wake it now that
@@ -94,20 +98,46 @@ CaptureSession::Update CaptureSession::take_update()
     return update;
 }
 
+void CaptureSession::update_statistics(CaptureEngine& engine)
+{
+    // Only the worker accesses this flag; start() resets it after joining.
+    if (statistics_failed_) return;
+    const auto delta = engine.take_statistics();
+    std::lock_guard lock{mutex_};
+    if (!delta) {
+        // Continue capture, but keep incomplete measurements unavailable.
+        statistics_.reset();
+        statistics_failed_ = true;
+        return;
+    }
+    if (!statistics_) statistics_ = CaptureStatistics{};
+    statistics_->packets += delta->packets;
+    statistics_->dropped += delta->dropped;
+}
+
 // Worker-thread entry point: receive, decode, and hand packets to the GUI
 // until the packet limit, cancellation, or a capture-level error.
 void CaptureSession::capture(const std::stop_token stop,
     const std::string& interface_name, const std::uint64_t packet_limit)
 {
+    // Keep the socket alive through error handling for the final stats read.
+    std::optional<CaptureEngine> engine;
     try {
         // CaptureEngine owns the raw socket and closes it when this scope ends.
         // Construction and open() can throw, just like receive_next() can.
-        CaptureEngine engine{interface_name};
-        engine.open();
+        engine.emplace(interface_name);
+        engine->open();
+        update_statistics(*engine);
+        auto next_statistics = std::chrono::steady_clock::now() + std::chrono::seconds{1};
         // Number of frames successfully delivered to the handoff queue. This
         // also supplies the next frame's one-based number to receive_next().
         std::uint64_t captured{};
         while (captured < packet_limit && !stop.stop_requested()) {
+            const auto now = std::chrono::steady_clock::now();
+            if (now >= next_statistics) {
+                update_statistics(*engine);
+                next_statistics = now + std::chrono::seconds{1};
+            }
             // Wait for handoff space before receiving another frame. The
             // stop-token wait also wakes during window closure or Stop. The
             // condition-variable wait releases mutex_ while it is blocked.
@@ -122,7 +152,7 @@ void CaptureSession::capture(const std::stop_token stop,
             }
             // A 100 ms timeout lets the loop recheck cancellation even when
             // no traffic arrives. An empty optional means no frame this time.
-            auto frame = engine.receive_next(captured + 1U, std::chrono::milliseconds{100});
+            auto frame = engine->receive_next(captured + 1U, std::chrono::milliseconds{100});
             if (!frame) continue;
             // decode() takes ownership of the captured frame. Hold the mutex
             // only while adding the resulting packet to the shared queue.
@@ -145,6 +175,10 @@ void CaptureSession::capture(const std::stop_token stop,
                 || system_error->code() == std::errc::permission_denied)) {
             error_ += ". Packet capture requires CAP_NET_RAW.";
         }
+    }
+    if (engine && engine->is_open()) {
+        update_statistics(*engine);
+        engine->close();
     }
     // Either the limit was reached, stop was requested, or an error occurred.
     // The GUI can still drain packets already queued after finished_ is true.

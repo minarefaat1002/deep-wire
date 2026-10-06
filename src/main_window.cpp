@@ -82,8 +82,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow{parent}
     status_ = new QLabel{"Ready", this};
     status_->setObjectName("captureStatus");
     status_->setWordWrap(true);
-    count_ = new QLabel{"0 packets", this};
+    count_ = new QLabel{"0 packets | Kernel drops: —", this};
     count_->setObjectName("packetCount");
+    count_->setToolTip("Kernel drops count losses at this capture socket only, excluding "
+        "NIC and network losses. Loss is dropped / total socket packets, including "
+        "dropped and buffered packets.");
     statusBar()->addWidget(status_, 1);
     statusBar()->addPermanentWidget(count_);
 
@@ -146,7 +149,7 @@ void MainWindow::start_capture()
             static_cast<std::uint64_t>(capture_limit_));
         packets_->clear();
         details_->clear();
-        count_->setText("0 packets");
+        count_->setText("0 packets | Kernel drops: —");
         stop_requested_ = false;
         set_capturing(true);
         status_->setText("Capturing on " + interfaces_->currentText());
@@ -170,7 +173,19 @@ void MainWindow::receive_update()
     auto update = session_.take_update();
     packets_->append(std::move(update.packets));
     const auto count = packets_->rowCount();
-    count_->setText(QString("%1 packets").arg(count));
+    QString count_text = QString("%1 packets").arg(count);
+    if (update.statistics) {
+        const auto& statistics = *update.statistics;
+        const double loss = statistics.packets == 0U ? 0.0
+            : 100.0 * static_cast<double>(statistics.dropped)
+                / static_cast<double>(statistics.packets);
+        count_text += QString(" | Kernel drops: %1 (%2%)")
+            .arg(static_cast<qulonglong>(statistics.dropped)).arg(loss, 0, 'f', 2);
+    } else {
+        count_text += update.finished || update.statistics_unavailable
+            ? " | Kernel drops: unavailable" : " | Kernel drops: —";
+    }
+    count_->setText(count_text);
     if (update.finished) {
         update_timer_->stop();
         set_capturing(false);

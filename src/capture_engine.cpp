@@ -226,6 +226,18 @@ const std::string& CaptureEngine::interface_name() const noexcept
     return interface_name_;
 }
 
+std::optional<CaptureStatistics> CaptureEngine::take_statistics() noexcept
+{
+    if (!is_open()) return std::nullopt;
+    tpacket_stats statistics{};
+    socklen_t length = sizeof(statistics);
+    if (::getsockopt(socket_fd_, SOL_PACKET, PACKET_STATISTICS,
+            &statistics, &length) == -1) {
+        return std::nullopt;
+    }
+    return CaptureStatistics{statistics.tp_packets, statistics.tp_drops};
+}
+
 // Wait for one packet up to the timeout. Return an empty optional when no
 // frame arrives, or throw if the socket cannot be used.
 std::optional<CapturedFrame> CaptureEngine::receive_next(

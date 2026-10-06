@@ -1,11 +1,13 @@
 #pragma once
 
+#include "capture_engine.hpp"
 #include "packet_decoder.hpp"
 
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -24,6 +26,9 @@ public:
         // Capture-level failure, such as an interface or socket error. An
         // individual malformed packet reports its own error in Packet::error.
         std::string error;
+        // Session totals; absent until measured or if measurement fails.
+        std::optional<CaptureStatistics> statistics;
+        bool statistics_unavailable{};
         // True when no capture is running: either start() has not been called
         // or the current capture has stopped. Packets may still be pending.
         bool finished{};
@@ -47,6 +52,7 @@ public:
 private:
     void capture(std::stop_token stop, const std::string& interface_name,
         std::uint64_t packet_limit);
+    void update_statistics(CaptureEngine& engine);
 
     // Backpressure bounds the handoff queue, including when the GUI is busy.
     static constexpr std::size_t pending_limit = 256U;
@@ -54,6 +60,8 @@ private:
     std::condition_variable_any space_available_;
     std::vector<Packet> pending_;
     std::string error_;
+    std::optional<CaptureStatistics> statistics_;
+    bool statistics_failed_{};
     bool finished_{true};
     // Declared last so the thread is destroyed before its shared state.
     // ~CaptureSession() requests that the worker stop, then joins it (waits for

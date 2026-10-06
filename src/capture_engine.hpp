@@ -19,6 +19,12 @@ struct NetworkInterface {
     std::string name;
 };
 
+struct CaptureStatistics {
+    // Total socket deliveries counted by Linux, including dropped packets.
+    std::uint64_t packets{};
+    std::uint64_t dropped{};
+};
+
 // Captures link-layer frames from one Linux network interface using an
 // AF_PACKET raw socket. Call open() before receive_next(); close() or
 // destruction releases the socket. The engine cannot be copied or moved.
@@ -56,6 +62,10 @@ public:
     // Return the interface name supplied at construction. The reference is
     // valid for the lifetime of this engine.
     [[nodiscard]] const std::string& interface_name() const noexcept;
+
+    // Read and reset the kernel's socket counters. Returns nullopt if closed
+    // or unavailable. Call from the capture worker and accumulate each result.
+    [[nodiscard]] std::optional<CaptureStatistics> take_statistics() noexcept;
 
     // Wait up to timeout for one frame. timeout must be between zero and
     // INT_MAX milliseconds; zero polls without waiting. Return std::nullopt

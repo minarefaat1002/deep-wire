@@ -63,6 +63,9 @@ The Qt 6 interface provides:
 - Original hexadecimal/ASCII bytes; selecting a layer highlights its header.
   Selecting a display field highlights its containing header.
 - Inline capture errors, including missing raw-socket permissions.
+- Kernel socket drops and loss percentage in the status bar, sampled by the
+  worker about once per second and before closing the socket. Counts accumulate
+  per capture and exclude NIC/network losses. Failed measurements show as unavailable.
 
 Each Start replaces the previous capture and resets frame numbering. Stop
 retains received packets for inspection. Capture also stops at the selected
